@@ -25,15 +25,30 @@ namespace flutter_runner {
 // their own threads.
 class Runner final : public fuchsia::sys::Runner {
  public:
+<<<<<<< HEAD
   // Does not take ownership of loop or context.
   Runner(async::Loop* loop, sys::ComponentContext* context);
+||||||| 69bc78301 (Revert "Migrate flutter_runner from flutter_runner::{Thread,Loop} to fml::{Thread,MessageLoop} (#15118)" (#15903))
+  explicit Runner(async::Loop* loop);
+=======
+  explicit Runner(fml::MessageLoop& message_loop);
+>>>>>>> parent of 69bc78301 (Revert "Migrate flutter_runner from flutter_runner::{Thread,Loop} to fml::{Thread,MessageLoop} (#15118)" (#15903))
 
   ~Runner();
 
  private:
+<<<<<<< HEAD
   async::Loop* loop_;
 
   sys::ComponentContext* context_;
+||||||| 69bc78301 (Revert "Migrate flutter_runner from flutter_runner::{Thread,Loop} to fml::{Thread,MessageLoop} (#15118)" (#15903))
+  async::Loop* loop_;
+
+  std::unique_ptr<sys::ComponentContext> context_;
+=======
+  fml::MessageLoop& message_loop_;
+  std::unique_ptr<sys::ComponentContext> context_;
+>>>>>>> parent of 69bc78301 (Revert "Migrate flutter_runner from flutter_runner::{Thread,Loop} to fml::{Thread,MessageLoop} (#15118)" (#15903))
   fidl::BindingSet<fuchsia::sys::Runner> active_applications_bindings_;
   std::unordered_map<const Application*, ActiveApplication>
       active_applications_;

@@ -23,10 +23,10 @@
 
 #include "flutter/common/settings.h"
 #include "flutter/fml/macros.h"
+#include "flutter/fml/thread.h"
 
 #include "engine.h"
 #include "flutter_runner_product_configuration.h"
-#include "thread.h"
 #include "unique_fdio_ns.h"
 
 namespace flutter_runner {
@@ -34,7 +34,7 @@ namespace flutter_runner {
 class Application;
 
 struct ActiveApplication {
-  std::unique_ptr<Thread> thread;
+  std::unique_ptr<fml::Thread> thread;
   std::unique_ptr<Application> application;
 
   ActiveApplication& operator=(ActiveApplication&& other) noexcept {
