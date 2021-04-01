@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#define FML_USED_ON_EMBEDDER
+
 #include "engine.h"
 
 #include <lib/async/cpp/task.h>
@@ -24,7 +26,6 @@
 #include "fuchsia_intl.h"
 #include "platform_view.h"
 #include "surface.h"
-#include "task_runner_adapter.h"
 
 #if defined(LEGACY_FUCHSIA_EMBEDDER)
 #include "compositor_context.h"  // nogncheck
@@ -71,28 +72,17 @@ Engine::Engine(Delegate& delegate,
                FlutterRunnerProductConfiguration product_config)
     : delegate_(delegate),
       thread_label_(std::move(thread_label)),
-#if defined(LEGACY_FUCHSIA_EMBEDDER)
-      use_legacy_renderer_(product_config.use_legacy_renderer()),
-#endif
-      intercept_all_input_(product_config.get_intercept_all_input()),
+      thread_host_(thread_label_ + ".",
+                   flutter::ThreadHost::Type::IO |
+                       flutter::ThreadHost::Type::UI |
+                       flutter::ThreadHost::Type::GPU),
       weak_factory_(this) {
   if (zx::event::create(0, &vsync_event_) != ZX_OK) {
     FML_DLOG(ERROR) << "Could not create the vsync event.";
     return;
   }
 
-  // Get the task runners from the managed threads. The current thread will be
-  // used as the "platform" thread.
-  const flutter::TaskRunners task_runners(
-      thread_label_,  // Dart thread labels
-      CreateFMLTaskRunner(async_get_default_dispatcher()),  // platform
-      CreateFMLTaskRunner(threads_[0].dispatcher()),        // raster
-      CreateFMLTaskRunner(threads_[1].dispatcher()),        // ui
-      CreateFMLTaskRunner(threads_[2].dispatcher())         // io
-  );
-  UpdateNativeThreadLabelNames(thread_label_, task_runners);
-
-  // Connect to Scenic.
+  // Set up the session connection.
   auto scenic = svc->Connect<fuchsia::ui::scenic::Scenic>();
   fidl::InterfaceHandle<fuchsia::ui::scenic::Session> session;
   fidl::InterfaceHandle<fuchsia::ui::scenic::SessionListener> session_listener;
@@ -274,6 +264,34 @@ Engine::Engine(Delegate& delegate,
                 vsync_handle);
           });
 
+  // Session can be terminated on the GPU thread, but we must terminate
+  // ourselves on the platform thread.
+  //
+  // This handles the fidl error callback when the Session connection is
+  // broken. The SessionListener interface also has an OnError method, which is
+  // invoked on the platform thread (in PlatformView).
+  fml::closure on_session_error_callback =
+      [dispatcher = async_get_default_dispatcher(),
+       weak = weak_factory_.GetWeakPtr()]() {
+        async::PostTask(dispatcher, [weak]() {
+          if (weak) {
+            weak->Terminate();
+          }
+        });
+      };
+
+  // Get the task runners from the managed threads. The current thread will be
+  // used as the "platform" thread.
+  fml::MessageLoop::EnsureInitializedForCurrentThread();
+
+  const flutter::TaskRunners task_runners(
+      thread_label_,                                   // Dart thread labels
+      fml::MessageLoop::GetCurrent().GetTaskRunner(),  // platform
+      thread_host_.gpu_thread->GetTaskRunner(),        // gpu
+      thread_host_.ui_thread->GetTaskRunner(),         // ui
+      thread_host_.io_thread->GetTaskRunner()          // io
+  );
+
   // Setup the callback that will instantiate the rasterizer.
   flutter::Shell::CreateCallback<flutter::Rasterizer> on_create_rasterizer;
 #if defined(LEGACY_FUCHSIA_EMBEDDER)
@@ -454,12 +472,6 @@ Engine::Engine(Delegate& delegate,
 
 Engine::~Engine() {
   shell_.reset();
-  for (auto& thread : threads_) {
-    thread.Quit();
-  }
-  for (auto& thread : threads_) {
-    thread.Join();
-  }
 }
 
 std::optional<uint32_t> Engine::GetEngineReturnCode() const {
